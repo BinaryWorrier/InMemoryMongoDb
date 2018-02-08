@@ -1,13 +1,13 @@
 # InMemoryMongoDb
 Implements the .net MongoDb 2.5 drivers interfaces, to allow unit testing  
-OK, so I haven't done the public opensource project before, be gentle with me good people
-At this stage this is pretty much the results of a 2 day "can this be done" expirament, and the answer to which is 
-"Yes this is absoutely doable"
+OK, so I haven't done the public opensource project before, be gentle with me good people  
+At this stage this is pretty much the results of a 2 day "can this be done" experiment, and the answer to which is 
+"**Yes this is absolutely doable**"
 
 Project Ethos.
-- I'm reluctant to pull in anythign that isn't .net standard.
+- I'm reluctant to pull in anything that isn't .net standard.
 I'm used to working with an IoC container, if one becomes necessary I'd nearly hand roll a simple one, 
-or include the code for TinyIoC rather than introduce a NuGet dependancy
+or include the code for TinyIoC rather than introduce a NuGet dependency
 
 
 - static
@@ -30,7 +30,7 @@ It’s not going to be terribly difficult, it just needs to be done.
 -	Filtering list of Objects on any operators I could find / think of ($and, $in, $exists, etc), simple to add more.
 -	Getting a typed .net value from a field (harder than it sounds).
 
-**Todo**
+**To-do**
 -	Projections
 I imagine being technically difficult, will need figure out how these are represented and build something to work with it. 
 Will require reflection.
@@ -49,5 +49,6 @@ I have some nunit tests put together for some  of what I’ve done so far, but w
 We load the initial data set into MongoDb, run the operations on it, get the expected result.
 Then load the initial data set into the InMemoryDb, run the operations on it, and compare that final dataset against the expected result.
 Something to do the last part would be a good thing to have.
+
 
 
