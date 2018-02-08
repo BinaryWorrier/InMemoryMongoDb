@@ -44,7 +44,7 @@ It feels like it should be scary but I don’t think Aggregations will be rocket
 -	Sessions, I’ve largely been ignoring sessions as I haven't used them and I’m not sure what they’re used for.
 -	Views, I’ve completely ignored views as I haven't used them, however once projections are done views might be straightforward to knock off.
 
-**Testing** 
+**Testing**  
 I have some nunit tests put together for some  of what I’ve done so far, but what would be good is to expand on those, and have a set of data, a set of operations on that data.
 We load the initial data set into MongoDb, run the operations on it, get the expected result.
 Then load the initial data set into the InMemoryDb, run the operations on it, and compare that final dataset against the expected result.
