@@ -14,7 +14,7 @@ namespace InMemoryMongoDb
         public static void RunInstallers(this TinyIoCContainer container)
         {
             var installers = from t in typeof(ITinyIoCInstaller).Assembly.GetTypes() 
-                             where typeof(ITinyIoCInstaller).IsInstanceOfType(t)
+                             where typeof(ITinyIoCInstaller) != t && typeof(ITinyIoCInstaller).IsAssignableFrom(t)
                              select t;
             
             foreach(var type in installers)

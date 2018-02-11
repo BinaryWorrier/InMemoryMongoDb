@@ -14,7 +14,7 @@ namespace InMemoryMongoDb
         IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filterDefinition, IEnumerable<BsonDocument> docs);
     }
 
-    public class IMNFilterIocInstaller : ITinyIoCInstaller
+    internal class IMNFilterIocInstaller : ITinyIoCInstaller
     {
         public void Install(TinyIoCContainer container)
         {

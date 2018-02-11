@@ -13,7 +13,7 @@ using TinyIoC;
 
 namespace InMemoryMongoDb
 {
-    public class Collection_Installer : ITinyIoCInstaller
+    internal class Collection_Installer : ITinyIoCInstaller
     {
         public void Install(TinyIoCContainer container)
         {

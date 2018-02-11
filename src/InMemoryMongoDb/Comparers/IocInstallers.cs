@@ -5,7 +5,7 @@ using TinyIoC;
 
 namespace InMemoryMongoDb.Comparers
 {
-    public class IocInstallers : ITinyIoCInstaller
+    internal class IocInstallers : ITinyIoCInstaller
     {
         public void Install(TinyIoCContainer container)
         {
