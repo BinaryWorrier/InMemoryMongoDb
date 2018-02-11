@@ -6,15 +6,22 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using TinyIoC;
 
 namespace InMemoryMongoDb
 {
     public class InMemoryClient : IMongoClient
     {
+        private static readonly TinyIoCContainer iocContainer;
 
+        static InMemoryClient()
+        {
+            iocContainer = new TinyIoCContainer();
+            iocContainer.RunInstallers();
+        }
         private ConcurrentDictionary<string, InMemoryDatabase> databases = new ConcurrentDictionary<string, InMemoryDatabase>();
 
-        private MongoClientSettings settings;
+        private MongoClientSettings settings = new MongoClientSettings();
 
         public ICluster Cluster => null;
 
@@ -43,7 +50,7 @@ namespace InMemoryMongoDb
         }
 
         public IMongoDatabase GetDatabase(string name, MongoDatabaseSettings settings = null)
-            => databases.GetOrAdd(name, n => new InMemoryDatabase(this, n));
+            => databases.GetOrAdd(name, n => new InMemoryDatabase(this, n, iocContainer));
         
 
         public IAsyncCursor<BsonDocument> ListDatabases(CancellationToken cancellationToken = default)

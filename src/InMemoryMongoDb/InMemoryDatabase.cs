@@ -7,18 +7,21 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TinyIoC;
 
 namespace InMemoryMongoDb
 {
     class InMemoryDatabase : IMongoDatabase
     {
         private readonly string name;
+        private readonly TinyIoCContainer iocContainer;
         private readonly ConcurrentDictionary<string, InMemoryCollection> collections = new ConcurrentDictionary<string, InMemoryCollection>();
 
-        public InMemoryDatabase(IMongoClient client, string name)
+        public InMemoryDatabase(IMongoClient client, string name, TinyIoCContainer iocContainer)
         {
             Client = client ?? throw new ArgumentNullException(nameof(client));
             this.name = name ?? throw new ArgumentNullException(nameof(name));
+            this.iocContainer = iocContainer ?? throw new ArgumentNullException(nameof(iocContainer));
         }
 
         public IMongoClient Client { get; private set; }
@@ -93,7 +96,16 @@ namespace InMemoryMongoDb
 
         public IMongoCollection<TDocument> GetCollection<TDocument>(string name, MongoCollectionSettings settings = null)
         {
-            InMemoryCollection<TDocument> NewCollection(string n) => new InMemoryCollection<TDocument>(this, n);
+            InMemoryCollection<TDocument> NewCollection(string n)
+            {
+                return iocContainer.Resolve <InMemoryCollection<TDocument>>(
+                new NamedParameterOverloads
+                {
+                    { "name", name },
+                    { "db", this}
+                });
+                //return new InMemoryCollection<TDocument>(this, n);
+            }
 
             return collections.AddOrUpdate(name, n => NewCollection(n), (n, c) => c ?? NewCollection(n)) as IMongoCollection<TDocument>;
         }

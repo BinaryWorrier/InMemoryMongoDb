@@ -9,9 +9,17 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TinyIoC;
 
 namespace InMemoryMongoDb
 {
+    public class Collection_Installer : ITinyIoCInstaller
+    {
+        public void Install(TinyIoCContainer container)
+        {
+            container.Register(typeof(InMemoryCollection<>));
+        }
+    }
     class InMemoryCollection
     {
 
@@ -20,10 +28,12 @@ namespace InMemoryMongoDb
     {
         private readonly ConcurrentDictionary<object, BsonDocument> docs = new ConcurrentDictionary<object, BsonDocument>();
         private readonly string name;
-        public InMemoryCollection(IMongoDatabase db, string name)
+        private readonly IFilter whereFilter;
+        public InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter)
         {
             Database = db ?? throw new ArgumentNullException(nameof(db));
             this.name = name;
+            this.whereFilter = whereFilter ?? throw new ArgumentNullException(nameof(whereFilter));
         }
         public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, name);
 
@@ -76,8 +86,9 @@ namespace InMemoryMongoDb
         {
             throw new NotImplementedException();
         }
+
         private IEnumerable<BsonDocument> ApplyFilter(FilterDefinition<T> filter)
-            => IMNFilter.Apply(filter, AllDocs());
+            => whereFilter.Apply(filter, AllDocs());
 
         public long Count(FilterDefinition<T> filter, CountOptions options = null, CancellationToken cancellationToken = default)
             => ApplyFilter(filter).Count();
@@ -136,7 +147,7 @@ namespace InMemoryMongoDb
         public Task<DeleteResult> DeleteOneAsync(IClientSessionHandle session, FilterDefinition<T> filter, DeleteOptions options = null, CancellationToken cancellationToken = default)
             => Task.FromResult(DeleteOne(filter, cancellationToken));
 
-        private (string Name, Func<BsonValue, TField> Deserializer) GetFieldName<T, TField>(FieldDefinition<T, TField> fieldDefinition)
+        private (string Name, Func<BsonValue, TField> Deserializer) GetFieldName<TField>(FieldDefinition<T, TField> fieldDefinition)
         {
             var ser = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry.GetSerializer<T>();
             var doc = fieldDefinition.Render(ser, MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry);
