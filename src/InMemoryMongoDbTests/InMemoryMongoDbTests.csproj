@@ -81,6 +81,7 @@
     <Compile Include="Entities.cs" />
     <Compile Include="IMNFilterTests.cs" />
     <Compile Include="InMemoryCollectionTests.cs" />
+    <Compile Include="InsertOneTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

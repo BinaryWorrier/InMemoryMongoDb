@@ -46,7 +46,7 @@ namespace InMemoryMongoDb
         {
             var ser = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry.GetSerializer<T>();
             var filterDoc = filterDefinition.Render(ser, MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry);
-
+            
             foreach (var doc in docs)
                 if (IsMatch(filterDoc.Elements, doc))
                     yield return doc;

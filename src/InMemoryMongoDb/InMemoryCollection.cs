@@ -29,12 +29,18 @@ namespace InMemoryMongoDb
         private readonly ConcurrentDictionary<object, BsonDocument> docs = new ConcurrentDictionary<object, BsonDocument>();
         private readonly string name;
         private readonly IFilter whereFilter;
+        private readonly IIdGenerator idGenerator;
+        private readonly BsonMemberMap idMemeber;
         public InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter)
         {
             Database = db ?? throw new ArgumentNullException(nameof(db));
             this.name = name;
             this.whereFilter = whereFilter ?? throw new ArgumentNullException(nameof(whereFilter));
+
+            var map = MongoDB.Bson.Serialization.BsonClassMap.LookupClassMap(typeof(T));
+            idGenerator = (idMemeber = map.IdMemberMap).IdGenerator;
         }
+
         public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, name);
 
         public IMongoDatabase Database { get; private set; }
@@ -285,16 +291,11 @@ namespace InMemoryMongoDb
 
         public void InsertOne(T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
         {
+            object docId = idMemeber.Getter(document);
+            if (docId == null || docId.Equals(idMemeber.DefaultValue))
+                idMemeber.Setter(document, idGenerator.GenerateId(this, document));
             var bson = document.ToBsonDocument();
-            bool generateId = true;
-            if (bson.TryGetValue("_id", out var id))
-                generateId = id.IsBsonNull || id == ObjectId.Empty;
-            if (generateId)
-            {
-                id = bson["_id"] =  ObjectId.GenerateNewId();
-                typeof(T).GetProperty("Id").SetMethod.Invoke(document, new object[] { id.AsObjectId });
-            }
-            docs.TryAdd(id, bson);
+            docs.TryAdd(bson["_id"], bson);
         }
 
         public void InsertOne(IClientSessionHandle session, T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
