@@ -31,6 +31,7 @@ namespace InMemoryMongoDb
         private readonly IFilter whereFilter;
         private readonly IIdGenerator idGenerator;
         private readonly BsonMemberMap idMemeber;
+        private readonly IBsonSerializer<T> bsonSerializer;
         public InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter)
         {
             Database = db ?? throw new ArgumentNullException(nameof(db));
@@ -39,6 +40,7 @@ namespace InMemoryMongoDb
 
             var map = MongoDB.Bson.Serialization.BsonClassMap.LookupClassMap(typeof(T));
             idGenerator = (idMemeber = map.IdMemberMap).IdGenerator;
+            bsonSerializer = BsonSerializer.SerializerRegistry.GetSerializer<T>();
         }
 
         public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, name);
@@ -187,17 +189,61 @@ namespace InMemoryMongoDb
 
         public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var projected = FilterAndProject(filter, options.Projection);
+
+            return Task.FromResult(INMAsyncCursor.Create(projected));
+        }
+
+        private IEnumerable<TProjection> FilterAndProject<TProjection>(FilterDefinition<T> filter, ProjectionDefinition<T, TProjection> projection)
+        {
+            var actualProjection = projection ?? new ClientSideDeserializationProjectionDefinition<T, TProjection>();
+            var renderedProjection = actualProjection.Render(BsonSerializer.SerializerRegistry.GetSerializer<T>(), BsonSerializer.SerializerRegistry);
+
+            var items = ApplyFilter(filter);
+
+            var projected = items.Select(doc => DeserialzeProjection(renderedProjection.ProjectionSerializer, doc));
+
+            return projected;
+        }
+        private TProjection ProjectDocument<TProjection>(ProjectionDefinition<T, TProjection> projection, BsonDocument doc)
+        {
+            var actualProjection = projection ?? new ClientSideDeserializationProjectionDefinition<T, TProjection>();
+            var renderedProjection = actualProjection.Render(BsonSerializer.SerializerRegistry.GetSerializer<T>(), BsonSerializer.SerializerRegistry);
+            return DeserialzeProjection(renderedProjection.ProjectionSerializer, doc);
+        }
+
+        private TProjection DeserialzeProjection<TProjection>(IBsonSerializer<TProjection> preojectionSerializer, BsonDocument doc)
+        {
+            using (var stream = new System.IO.MemoryStream())
+            {
+                using (var writer = new BsonBinaryWriter(stream))
+                {
+                    var writeCtx = BsonSerializationContext.CreateRoot(writer);
+
+                    bsonSerializer.Serialize(writeCtx, doc);
+                }
+
+                stream.Seek(0, System.IO.SeekOrigin.Begin);
+                using (var r = new BsonBinaryReader(stream))
+                {
+                    var reader = new BsonBinaryReader(stream);
+                    var readCtx = BsonDeserializationContext.CreateRoot(reader);
+                    return preojectionSerializer.Deserialize(readCtx);
+                }
+            }
         }
 
         public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => FindAsync(filter, options, cancellationToken);
 
         public TProjection FindOneAndDelete<TProjection>(FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var filteredDocs = ApplyFilter(filter);
+            var one = filteredDocs.FirstOrDefault();
+            if (one == null)
+                return default;
+            docs.TryRemove(one["_id"], out var _);
+            return ProjectDocument(options.Projection, one);
         }
 
         public TProjection FindOneAndDelete<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)

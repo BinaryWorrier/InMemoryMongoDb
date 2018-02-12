@@ -79,6 +79,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Entities.cs" />
+    <Compile Include="FindAsyncTests.cs" />
     <Compile Include="IMNFilterTests.cs" />
     <Compile Include="InMemoryCollectionTests.cs" />
     <Compile Include="InsertOneTests.cs" />
