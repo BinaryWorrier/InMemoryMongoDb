@@ -5,6 +5,7 @@ using MongoDB.Driver;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -26,12 +27,20 @@ namespace InMemoryMongoDb
     }
     class InMemoryCollection<T> : InMemoryCollection, IMongoCollection<T>
     {
-        private readonly ConcurrentDictionary<object, BsonDocument> docs = new ConcurrentDictionary<object, BsonDocument>();
+        private readonly ConcurrentDictionary<object, BsonDocument> docs;
         private readonly string name;
         private readonly IFilter whereFilter;
         private readonly IIdGenerator idGenerator;
+        private readonly IBsonSerializer<T> bsonSerializer;
         private readonly BsonMemberMap idMemeber;
+
         public InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter)
+            :this(db, name, whereFilter, new ConcurrentDictionary<object, BsonDocument>())
+        {
+            
+        }
+
+        protected InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter, ConcurrentDictionary<object, BsonDocument> docs)
         {
             Database = db ?? throw new ArgumentNullException(nameof(db));
             this.name = name;
@@ -39,6 +48,9 @@ namespace InMemoryMongoDb
 
             var map = MongoDB.Bson.Serialization.BsonClassMap.LookupClassMap(typeof(T));
             idGenerator = (idMemeber = map.IdMemberMap).IdGenerator;
+            bsonSerializer = BsonSerializer.SerializerRegistry.GetSerializer<T>();
+
+            this.docs = docs;
         }
 
         public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, name);
@@ -93,11 +105,11 @@ namespace InMemoryMongoDb
             throw new NotImplementedException();
         }
 
-        private IEnumerable<BsonDocument> ApplyFilter(FilterDefinition<T> filter)
-            => whereFilter.Apply(filter, AllDocs());
+        protected virtual IEnumerable<BsonDocument> ApplyFilter(FilterDefinition<T> filter, long? limit, long? skip)
+            => whereFilter.Apply(filter, AllDocs(), limit, skip);
 
         public long Count(FilterDefinition<T> filter, CountOptions options = null, CancellationToken cancellationToken = default)
-            => ApplyFilter(filter).Count();
+            => ApplyFilter(filter, options?.Limit, options?.Skip).Count();
 
         public long Count(IClientSessionHandle session, FilterDefinition<T> filter, CountOptions options = null, CancellationToken cancellationToken = default)
             => Count(filter, options, cancellationToken);
@@ -111,7 +123,7 @@ namespace InMemoryMongoDb
         public DeleteResult DeleteMany(FilterDefinition<T> filter, CancellationToken cancellationToken = default)
         {
             int count = 0;
-            foreach (var doc in ApplyFilter(filter))
+            foreach (var doc in ApplyFilter(filter, null, null))
                 if (RemoveDoc(doc))
                     count++;
             return new INMDeleteResult(count, true);
@@ -136,7 +148,7 @@ namespace InMemoryMongoDb
             => DeleteManyAsync(filter, cancellationToken);
 
         public DeleteResult DeleteOne(FilterDefinition<T> filter, CancellationToken cancellationToken = default)
-            => new INMDeleteResult(RemoveDoc(ApplyFilter(filter).FirstOrDefault()) ? 1 : 0, true);
+            => new INMDeleteResult(RemoveDoc(ApplyFilter(filter, null, null).FirstOrDefault()) ? 1 : 0, true);
 
         public DeleteResult DeleteOne(FilterDefinition<T> filter, DeleteOptions options, CancellationToken cancellationToken = default)
             => DeleteOne(filter, cancellationToken);
@@ -155,8 +167,7 @@ namespace InMemoryMongoDb
 
         private (string Name, Func<BsonValue, TField> Deserializer) GetFieldName<TField>(FieldDefinition<T, TField> fieldDefinition)
         {
-            var ser = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry.GetSerializer<T>();
-            var doc = fieldDefinition.Render(ser, MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry);
+            var doc = fieldDefinition.Render(bsonSerializer, BsonSerializer.SerializerRegistry);
 
             return (doc.FieldName, v =>
             {
@@ -164,13 +175,12 @@ namespace InMemoryMongoDb
                 {
                     return doc.FieldSerializer.Deserialize<TField>(BsonDeserializationContext.CreateRoot(bsonReader));
                 }
-            }
-            );
+            });
         }
         public IAsyncCursor<TField> Distinct<TField>(FieldDefinition<T, TField> field, FilterDefinition<T> filter, DistinctOptions options = null, CancellationToken cancellationToken = default)
         {
             var fld = GetFieldName(field);
-            return INMAsyncCursor.Create(DistinctImpl(ApplyFilter(filter), fld));
+            return INMAsyncCursor.Create(DistinctImpl(ApplyFilter(filter, null, null), fld));
         }
 
         private IEnumerable<TField> DistinctImpl<TField>(IEnumerable<BsonDocument> items, (string Name, Func<BsonValue, TField> Deserializer) fld)
@@ -186,54 +196,99 @@ namespace InMemoryMongoDb
             => DistinctAsync(field, filter, options, cancellationToken);
 
         public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(FindSync(filter, options, cancellationToken));
 
-        public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
+        private IEnumerable<TProjection> FilterAndProject<TProjection>(FilterDefinition<T> filter, ProjectionDefinition<T, TProjection> projection, long? limit, long? skip, SortDefinition<T> sort)
         {
-            throw new NotImplementedException();
+            var proj = projection ?? new ClientSideDeserializationProjectionDefinition<T, TProjection>();
+            var projSerializer = (proj.Render(bsonSerializer, BsonSerializer.SerializerRegistry)).ProjectionSerializer;
+            return ApplySort(sort, ApplyFilter(filter, limit, skip)).Select(item => DoProjection(item, projSerializer));
         }
 
         public TProjection FindOneAndDelete<TProjection>(FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var item = ApplySort(options?.Sort, ApplyFilter(filter, null, null)).First();
+            if (item != null)
+            {
+                docs.TryRemove(item["_id"], out var _);
+                return DoProjection(item, options?.Projection);
+            }
+            return default;
+        }
+
+        private IEnumerable<BsonDocument> ApplySort(SortDefinition<T> sort, IEnumerable<BsonDocument> items)
+        {
+            if (sort == null)
+                return items;
+
+            var sortKeys = sort.Render(bsonSerializer, BsonSerializer.SerializerRegistry);
+            foreach(var key in sortKeys)
+            {
+                if (key.Value == 1)
+                    items = items.OrderBy(doc => BsonHelpers.GetDocumentValue(key.Name, doc));
+                else
+                    items = items.OrderByDescending(doc => BsonHelpers.GetDocumentValue(key.Name, doc));
+            }
+            return items;
+        }
+
+        private TProjection DoProjection<TProjection>(BsonDocument item, ProjectionDefinition<T, TProjection> projection)
+        {
+            if (item == null)
+                return default;
+            var proj = projection ?? new ClientSideDeserializationProjectionDefinition<T, TProjection>();
+            var projSerializer = (proj.Render(bsonSerializer, BsonSerializer.SerializerRegistry)).ProjectionSerializer;
+            return DoProjection(item, projSerializer);
+        }
+
+        private TProjection DoProjection<TProjection>(BsonDocument item, IBsonSerializer<TProjection> deserializer)
+        {
+            using (var stream = new MemoryStream())
+            {
+                using (var writer = new BsonBinaryWriter(stream))
+                    bsonSerializer.Serialize(BsonSerializationContext.CreateRoot(writer), item);
+                stream.Seek(0, SeekOrigin.Begin);
+                using (var reader = new BsonBinaryReader(stream))
+                    return deserializer.Deserialize(BsonDeserializationContext.CreateRoot(reader));
+            }
         }
 
         public TProjection FindOneAndDelete<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => FindOneAndDelete(filter, options, cancellationToken);
 
         public Task<TProjection> FindOneAndDeleteAsync<TProjection>(FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(FindOneAndDelete(filter, options, cancellationToken));
 
         public Task<TProjection> FindOneAndDeleteAsync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOneAndDeleteOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(FindOneAndDelete(filter, options, cancellationToken));
 
         public TProjection FindOneAndReplace<TProjection>(FilterDefinition<T> filter, T replacement, FindOneAndReplaceOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var item = ApplyFilter(filter, null, null).FirstOrDefault();
+            if (item != null)
+            {
+                var id = idMemeber.Getter(item);
+
+                var newId = idMemeber.Getter(replacement);
+                if (newId != null && !newId.Equals(idMemeber.DefaultValue) && !id.Equals(newId))
+                    throw new InMemoryDatabaseException($@"The _id field cannot be changed from \{{id}\} to \{{newId}\}.");
+
+                var bson = replacement.ToBsonDocument();
+                docs[bson["_id"]] = bson;
+            }
+            else if(options != null && options.IsUpsert)
+                InsertOne(replacement);
+            return DoProjection(item, options?.Projection);
         }
 
         public TProjection FindOneAndReplace<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, T replacement, FindOneAndReplaceOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => FindOneAndReplace(filter, replacement, options, cancellationToken);
 
         public Task<TProjection> FindOneAndReplaceAsync<TProjection>(FilterDefinition<T> filter, T replacement, FindOneAndReplaceOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromCanceled(FindOneAndReplace(filter, T, options, cancellationToken));
 
         public Task<TProjection> FindOneAndReplaceAsync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, T replacement, FindOneAndReplaceOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromCanceled(FindOneAndReplace(filter, T, options, cancellationToken));
 
         public TProjection FindOneAndUpdate<TProjection>(FilterDefinition<T> filter, UpdateDefinition<T> update, FindOneAndUpdateOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
@@ -257,13 +312,13 @@ namespace InMemoryMongoDb
 
         public IAsyncCursor<TProjection> FindSync<TProjection>(FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var items = FilterAndProject(filter, options?.Projection, options?.Limit, options?.Skip, options?.Sort);
+            return INMAsyncCursor.Create(items);
         }
 
+
         public IAsyncCursor<TProjection> FindSync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => FindSync(filter, options, cancellationToken);
 
         public void InsertMany(IEnumerable<T> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -273,9 +328,7 @@ namespace InMemoryMongoDb
         }
 
         public void InsertMany(IClientSessionHandle session, IEnumerable<T> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default)
-        {
-            InsertMany(documents, options, cancellationToken);
-        }
+            => InsertMany(documents, options, cancellationToken);
 
         public Task InsertManyAsync(IEnumerable<T> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -284,10 +337,7 @@ namespace InMemoryMongoDb
         }
 
         public Task InsertManyAsync(IClientSessionHandle session, IEnumerable<T> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default)
-        {
-            InsertMany(documents, options, cancellationToken);
-            return Task.CompletedTask;
-        }
+            => InsertManyAsync(documents, options, cancellationToken);
 
         public void InsertOne(T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -299,9 +349,7 @@ namespace InMemoryMongoDb
         }
 
         public void InsertOne(IClientSessionHandle session, T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
-        {
-            InsertOne(document, options, cancellationToken);
-        }
+            => InsertOne(document, options, cancellationToken);
 
         public Task InsertOneAsync(T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -310,16 +358,10 @@ namespace InMemoryMongoDb
         }
 
         public Task InsertOneAsync(T document, CancellationToken cancellationToken = default)
-        {
-            InsertOne(document, null, cancellationToken);
-            return Task.CompletedTask;
-        }
+            => InsertOneAsync(document, null, cancellationToken);
 
         public Task InsertOneAsync(IClientSessionHandle session, T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
-        {
-            InsertOne(document, options, cancellationToken);
-            return Task.CompletedTask;
-        }
+            => InsertOneAsync(document, null, cancellationToken);
 
         public IAsyncCursor<TResult> MapReduce<TResult>(BsonJavaScript map, BsonJavaScript reduce, MapReduceOptions<T, TResult> options = null, CancellationToken cancellationToken = default)
         {
@@ -342,29 +384,41 @@ namespace InMemoryMongoDb
         }
 
         public IFilteredMongoCollection<TDerivedDocument> OfType<TDerivedDocument>() where TDerivedDocument : T
-        {
-            throw new NotImplementedException();
-        }
+            => new InMemoryFilteredCollection<T, TDerivedDocument>(Database, name, whereFilter, docs, Builders<TDerivedDocument>.Filter.OfType<TDerivedDocument>(_ => true));
 
         public ReplaceOneResult ReplaceOne(FilterDefinition<T> filter, T replacement, UpdateOptions options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var item = ApplyFilter(filter, null, null).FirstOrDefault();
+            if (item != null)
+            {
+                var id = idMemeber.Getter(item);
+
+                var newId = idMemeber.Getter(replacement);
+                if (newId != null && !newId.Equals(idMemeber.DefaultValue) && !id.Equals(newId))
+                    throw new InMemoryDatabaseException($@"The _id field cannot be changed from \{{id}\} to \{{newId}\}.");
+
+                idMemeber.Setter(replacement, id);
+                var bson = replacement.ToBsonDocument();
+                docs[bson["_id"]] = bson;
+                return new IMReplaceOneResult(true, true, 1, 1, BsonValue.Create(id));
+            }
+            else if (options != null && options.IsUpsert)
+            {
+                InsertOne(replacement);
+                return new IMReplaceOneResult(true, true, 0, 1, BsonValue.Create(idMemeber.Getter(replacement)));
+            }
+
+            return new IMReplaceOneResult(true, true, 0, 0, BsonValue.Create(null));
         }
 
         public ReplaceOneResult ReplaceOne(IClientSessionHandle session, FilterDefinition<T> filter, T replacement, UpdateOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => ReplaceOne(filter, replacement, options, cancellationToken);
 
         public Task<ReplaceOneResult> ReplaceOneAsync(FilterDefinition<T> filter, T replacement, UpdateOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(ReplaceOne(filter, replacement, options, cancellationToken));
 
         public Task<ReplaceOneResult> ReplaceOneAsync(IClientSessionHandle session, FilterDefinition<T> filter, T replacement, UpdateOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(ReplaceOne(filter, replacement, options, cancellationToken));
 
         public UpdateResult UpdateMany(FilterDefinition<T> filter, UpdateDefinition<T> update, UpdateOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -440,5 +494,8 @@ namespace InMemoryMongoDb
         {
             throw new NotImplementedException();
         }
+
+        public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(IClientSessionHandle session, FilterDefinition<T> filter, FindOptions<T, TProjection> options = null, CancellationToken cancellationToken = default)
+            => FindAsync(filter, options, cancellationToken);
     }
 }

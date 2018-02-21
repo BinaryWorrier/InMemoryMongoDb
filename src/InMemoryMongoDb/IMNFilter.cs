@@ -11,7 +11,7 @@ namespace InMemoryMongoDb
 {
     internal interface IFilter
     {
-        IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filterDefinition, IEnumerable<BsonDocument> docs);
+        IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filterDefinition, IEnumerable<BsonDocument> docs, long? limit, long? skip);
     }
 
     internal class IMNFilterIocInstaller : ITinyIoCInstaller
@@ -42,16 +42,31 @@ namespace InMemoryMongoDb
 
         private readonly Dictionary<string, LogicalOperator> logicOperators;
 
-        public IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filterDefinition, IEnumerable<BsonDocument> docs)
+        public IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filterDefinition, IEnumerable<BsonDocument> docs, long? limit, long? skip)
         {
             var ser = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry.GetSerializer<T>();
             var filterDoc = filterDefinition.Render(ser, MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry);
-            
-            foreach (var doc in docs)
-                if (IsMatch(filterDoc.Elements, doc))
-                    yield return doc;
-        }
 
+            long limitCount = Math.Max(limit ?? long.MaxValue, 0);
+            long skipCount = Math.Max(skip ?? 0, 0);
+
+            using (var iDocs = docs.GetEnumerator())
+            {
+                while (iDocs.MoveNext() && limitCount > 0)
+                {
+                    if (IsMatch(filterDoc.Elements, iDocs.Current))
+                    {
+                        if (skipCount != 0)
+                            skipCount--;
+                        else
+                        {
+                            yield return iDocs.Current;
+                            limitCount--;
+                        }
+                    }
+                }
+            }
+        }
         private bool IsMatch(IEnumerable<BsonElement> elements, BsonDocument doc)
         {
             // Assume it's an and and all elements are equals.
