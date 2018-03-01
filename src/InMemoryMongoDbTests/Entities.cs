@@ -22,6 +22,7 @@ namespace InMemoryMongoDbTests
         public string Name { get; set; }
         public List<string> Books { get; set; }
         public int Number { get; set; }
+        public long? NullableLong { get; set; }
         public MyEntitiesThings TheThings { get; set; }
     }
     class MyDerivedEntity : MyEntity

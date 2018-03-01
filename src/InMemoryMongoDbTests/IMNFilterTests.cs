@@ -28,7 +28,7 @@ namespace InMemoryMongoDbTests
         private IEnumerable<BsonDocument> Apply<T>(FilterDefinition<T> filter, IEnumerable<T> entities)
         {
             var comparers = new FilterComparers();
-            return (new IMNFilter(comparers)).Apply(filter, entities.Select(e => e.ToBsonDocument()));
+            return (new IMNFilter(comparers)).Apply(filter, entities.Select(e => e.ToBsonDocument()), null, null);
         }
 
         [Test]
@@ -52,6 +52,7 @@ namespace InMemoryMongoDbTests
 
             return docs.Any();
         }
+
         [TestCase(1, 0, ExpectedResult = true)]
         [TestCase(0, 0, ExpectedResult = true)]
         [TestCase(-1, 0, ExpectedResult = false)]

@@ -13,21 +13,14 @@ namespace InMemoryMongoDb
     {
         public static void RunInstallers(this TinyIoCContainer container)
         {
-            try
+            var installers = from t in typeof(ITinyIoCInstaller).Assembly.GetTypes() 
+                             where typeof(ITinyIoCInstaller) != t && typeof(ITinyIoCInstaller).IsAssignableFrom(t)
+                             select t;
+            
+            foreach(var type in installers)
             {
-                var installers = from t in typeof(ITinyIoCInstaller).Assembly.GetTypes()
-                                 where typeof(ITinyIoCInstaller) != t && typeof(ITinyIoCInstaller).IsAssignableFrom(t)
-                                 select t;
-
-                foreach (var type in installers)
-                {
-                    var installer = (ITinyIoCInstaller)Activator.CreateInstance(type);
-                    installer.Install(container);
-                }
-            }
-            catch(Exception ex)
-            {
-                throw new Exception(ex.Message, ex);
+                var installer = (ITinyIoCInstaller) Activator.CreateInstance(type);
+                installer.Install(container);
             }
         }
 
