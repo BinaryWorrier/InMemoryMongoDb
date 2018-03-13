@@ -247,9 +247,8 @@ namespace InMemoryMongoDb
         {
             using (var stream = new MemoryStream())
             {
-                var documentSerializer = BsonSerializer.SerializerRegistry.GetSerializer<BsonDocument>();
                 using (var writer = new BsonBinaryWriter(stream))
-                    documentSerializer.Serialize(BsonSerializationContext.CreateRoot(writer), item);
+                    bsonSerializer.Serialize(BsonSerializationContext.CreateRoot(writer), item);
                 stream.Seek(0, SeekOrigin.Begin);
                 using (var reader = new BsonBinaryReader(stream))
                     return deserializer.Deserialize(BsonDeserializationContext.CreateRoot(reader));
