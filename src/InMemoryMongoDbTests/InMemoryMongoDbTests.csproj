@@ -82,6 +82,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BulkWriteTests.cs" />
     <Compile Include="Entities.cs" />
     <Compile Include="IMNFilterTests.cs" />
     <Compile Include="InMemoryCollectionTests.cs" />
@@ -98,6 +99,9 @@
       <Project>{f4ba5237-42ac-4ad3-9fe5-3611f00a07e2}</Project>
       <Name>InMemoryMongoDb</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

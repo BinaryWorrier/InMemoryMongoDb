@@ -5,13 +5,17 @@ namespace InMemoryMongoDb
 {
     internal class INMUpdateResult : UpdateResult
     {
-        public INMUpdateResult(bool isAcknowledged, bool isModifiedCountAvailable, long matchedCount, long modifiedCount, BsonValue upsertedId)
+        public INMUpdateResult(bool isAcknowledged, long matchedCount, long modifiedCount, BsonValue upsertedId)
         {
             IsAcknowledged = isAcknowledged;
+            MatchedCount = matchedCount;
+            ModifiedCount = modifiedCount;
+            UpsertedId = upsertedId;
         }
+
         public override bool IsAcknowledged { get; }
 
-        public override bool IsModifiedCountAvailable { get; }
+        public override bool IsModifiedCountAvailable { get; } = true;
 
         public override long MatchedCount { get; }
 
