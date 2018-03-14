@@ -1,7 +1,7 @@
 # InMemoryMongoDb
 Implements the .net MongoDb 2.5 drivers interfaces, to allow unit testing  
-OK, so I haven't done the public opensource project before, be gentle with me good people  
-At this stage this is pretty much the results of a 2 day "can this be done" experiment, and the answer to which is 
+
+The origina check in was pretty much the results of a 2 day "can this be done" experiment, and the answer to which is 
 "**Yes this is absolutely doable**"
 
 Project Ethos.
@@ -22,14 +22,10 @@ They’re functional but may need a small amount of work
 -	Count
 -	Filtering list of Objects on any operators I could find / think of ($and, $in, $exists, etc), simple to add more.
 -	Getting a typed .net value from a field (harder than it sounds).
+-	Projections - need unit tests
+-	Updates - need more unit tests
 
 **To-do**
--	Projections
-I imagine being technically difficult, will need figure out how these are represented and build something to work with it. 
-Will require reflection.
--	Updates
-These will be straightforward, but there are lots of them. 
-Once a basic structure is set up, these can be farmed out and the list of Operations can be done in parallel by different people
 -	Aggregations
 Once projections are done, there’s little new here beyond grouping, which is easily achieved with a dictionary or a HashSet
 It will need Filtering, matching & projections and grouping.
@@ -42,6 +38,3 @@ I have some nunit tests put together for some  of what I’ve done so far, but w
 We load the initial data set into MongoDb, run the operations on it, get the expected result.  
 Then load the initial data set into the InMemoryDb, run the operations on it, and compare that final dataset against the expected result.  
 Something to do the last part would be a good thing to have.  
-
-
-
