@@ -89,23 +89,71 @@ namespace InMemoryMongoDb
 
         public BulkWriteResult<T> BulkWrite(IEnumerable<WriteModel<T>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var bypassDocumentValidation = options?.BypassDocumentValidation;
+            long deleted = 0;
+            long inserted = 0;
+            long matched = 0;
+            long modified = 0;
+            int count = 0;
+            var upserts = new List<BulkWriteUpsert>();
+            foreach (var req in requests)
+            {
+                switch (req)
+                {
+                    case InsertOneModel<T> insert:
+                        InsertOne(insert.Document);
+                        inserted++;
+                        break;
+                    case ReplaceOneModel<T> replace:
+                        var rOneResult = ReplaceOne(replace.Filter, replace.Replacement, new UpdateOptions { IsUpsert = replace.IsUpsert, BypassDocumentValidation = bypassDocumentValidation });
+                        matched += rOneResult.MatchedCount;
+                        if (rOneResult.MatchedCount == 0)
+                        {
+                            upserts.Add(INMBulkWriteUpsert.Create(count, rOneResult.UpsertedId));
+                            inserted++;
+                        }
+                        break;
+                    case UpdateOneModel<T> update:
+                        var uOneResult = UpdateOne(update.Filter, update.Update, new UpdateOptions { ArrayFilters = update.ArrayFilters, IsUpsert = update.IsUpsert, BypassDocumentValidation = bypassDocumentValidation });
+                        matched += uOneResult.MatchedCount;
+                        modified += uOneResult.ModifiedCount;
+                        break;
+                    case UpdateManyModel<T> updateMany:
+                        var uManuResult = UpdateMany(updateMany.Filter, updateMany.Update, new UpdateOptions { ArrayFilters = updateMany.ArrayFilters, IsUpsert = updateMany.IsUpsert, BypassDocumentValidation = bypassDocumentValidation });
+                        matched += uManuResult.MatchedCount;
+                        modified += uManuResult.ModifiedCount;
+                        break;
+                    case DeleteOneModel<T> delete:
+                        var dOneResult = DeleteOne(delete.Filter);
+                        deleted += dOneResult.DeletedCount;
+                        break;
+                    case DeleteManyModel<T> deleteMany:
+                        var dManyResult = DeleteMany(deleteMany.Filter);
+                        deleted += dManyResult.DeletedCount;
+                        break;
+                    default:
+                        throw new InMemoryDatabaseException($"Unknown WriteModel type '{req.GetType().Name}'");
+                }
+                count++;
+            }
+            return new INMBulkWriteResult<T>(count, requests)
+            {
+                INMDeletedCount = deleted,
+                IMNUpserts = upserts,
+                INMInsertedCount = inserted,
+                INMMatchedCount = matched,
+                INMModifiedCount = modified
+            };
         }
 
         public BulkWriteResult<T> BulkWrite(IClientSessionHandle session, IEnumerable<WriteModel<T>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => BulkWrite(requests, options, cancellationToken);
 
         public Task<BulkWriteResult<T>> BulkWriteAsync(IEnumerable<WriteModel<T>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(BulkWrite(requests, options, cancellationToken));
 
         public Task<BulkWriteResult<T>> BulkWriteAsync(IClientSessionHandle session, IEnumerable<WriteModel<T>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
-        }
+            => BulkWriteAsync(requests, options, cancellationToken);
 
         protected virtual IEnumerable<BsonDocument> ApplyFilter(FilterDefinition<T> filter, long? limit, long? skip)
             => whereFilter.Apply(filter, AllDocs(), limit, skip);
@@ -445,7 +493,7 @@ namespace InMemoryMongoDb
             {
                 upsetId = DoUpsert(update);
             }
-            return new INMUpdateResult(true, true, updates, updates, upsetId);
+            return new INMUpdateResult(true, updates, updates, upsetId);
         }
 
         private BsonValue DoUpsert(UpdateDefinition<T> update)
@@ -478,7 +526,7 @@ namespace InMemoryMongoDb
             }
             else if (options != null && options.IsUpsert)
                 upsertId = DoUpsert(update);
-            return new INMUpdateResult(true, true, count, count, upsertId);
+            return new INMUpdateResult(true, count, count, upsertId);
         }
 
         public UpdateResult UpdateOne(IClientSessionHandle session, FilterDefinition<T> filter, UpdateDefinition<T> update, UpdateOptions options = null, CancellationToken cancellationToken = default)

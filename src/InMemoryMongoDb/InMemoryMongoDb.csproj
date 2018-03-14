@@ -75,6 +75,7 @@
     <Compile Include="IMNFilter.cs" />
     <Compile Include="IMReplaceOneResult.cs" />
     <Compile Include="INMAsyncCursor.cs" />
+    <Compile Include="INMBulkWriteResult.cs" />
     <Compile Include="INMClientSessionHandle.cs" />
     <Compile Include="INMDeleteResult.cs" />
     <Compile Include="InMemoryClient.cs" />
