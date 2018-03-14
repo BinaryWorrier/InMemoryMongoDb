@@ -17,13 +17,14 @@ _Done, to do and things that aren't difficult_
 **Done & mostly done**
 -	Barebones of an InMemoryClient object & InMemoryDatabase object  
 They’re functional but may need a small amount of work
--	InsertOne, InsertMany  ~~assumes all Ids are ObjectIds~~  
+- Find methods
+-	InsertOne, InsertMany  
 -	DeleteOne, DeleteMany
 -	Count
 -	Filtering list of Objects on any operators I could find / think of ($and, $in, $exists, etc), simple to add more.
 -	Getting a typed .net value from a field (harder than it sounds).
 -	Projections - need unit tests
--	Updates - need more unit tests
+-	Updates - only 4 or 5 operators, $set, $unset, $inc, $push,  need more operators and  unit tests
 
 **To-do**
 -	Aggregations
