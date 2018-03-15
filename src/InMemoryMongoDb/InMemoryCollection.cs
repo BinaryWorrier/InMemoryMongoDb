@@ -117,11 +117,15 @@ namespace InMemoryMongoDb
                         var uOneResult = UpdateOne(update.Filter, update.Update, new UpdateOptions { ArrayFilters = update.ArrayFilters, IsUpsert = update.IsUpsert, BypassDocumentValidation = bypassDocumentValidation });
                         matched += uOneResult.MatchedCount;
                         modified += uOneResult.ModifiedCount;
+                        if (uOneResult.ModifiedCount != uOneResult.MatchedCount)
+                            upserts.Add(INMBulkWriteUpsert.Create(count, uOneResult.UpsertedId));
                         break;
                     case UpdateManyModel<T> updateMany:
                         var uManuResult = UpdateMany(updateMany.Filter, updateMany.Update, new UpdateOptions { ArrayFilters = updateMany.ArrayFilters, IsUpsert = updateMany.IsUpsert, BypassDocumentValidation = bypassDocumentValidation });
                         matched += uManuResult.MatchedCount;
                         modified += uManuResult.ModifiedCount;
+                        if (uManuResult.ModifiedCount != uManuResult.MatchedCount)
+                            upserts.Add(INMBulkWriteUpsert.Create(count, uManuResult.UpsertedId));
                         break;
                     case DeleteOneModel<T> delete:
                         var dOneResult = DeleteOne(delete.Filter);
@@ -502,6 +506,7 @@ namespace InMemoryMongoDb
             var doc = new BsonDocument();
             doc["_id"] = upsetId = BsonValue.Create(idGenerator.GenerateId(this, doc));
             updater.Apply(update, doc);
+            docs[doc["_id"]] = doc;
             return upsetId;
         }
 
@@ -518,15 +523,20 @@ namespace InMemoryMongoDb
         {
             var item = ApplyFilter(filter, null, null).FirstOrDefault();
             BsonValue upsertId = BsonNull.Value;
-            int count = 0;
+            int matched = 0;
+            int modified = 0;
             if (item != null)
             {
                 updater.Apply(update, item);
-                count = 1;
+                matched = 1;
+                modified = 1;
             }
             else if (options != null && options.IsUpsert)
+            {
                 upsertId = DoUpsert(update);
-            return new INMUpdateResult(true, count, count, upsertId);
+                modified = 1;
+            }
+            return new INMUpdateResult(true, matched, modified, upsertId);
         }
 
         public UpdateResult UpdateOne(IClientSessionHandle session, FilterDefinition<T> filter, UpdateDefinition<T> update, UpdateOptions options = null, CancellationToken cancellationToken = default)

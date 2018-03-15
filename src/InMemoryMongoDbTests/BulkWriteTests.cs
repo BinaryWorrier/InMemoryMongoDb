@@ -40,16 +40,23 @@ namespace InMemoryMongoDbTests
             {
                 new InsertOneModel<MyEntity>(new MyEntity { Name = "First" }),
                 new InsertOneModel<MyEntity>(new MyEntity { Name = "Second", Number = 1 }),
-                new UpdateOneModel<MyEntity>(Builders<MyEntity>.Filter.Where(e => e.Number == 1), Builders<MyEntity>.Update.Set(e => e.Name , "Second Updated"))
+                new UpdateOneModel<MyEntity>(Builders<MyEntity>.Filter.Where(e => e.Number == 1), Builders<MyEntity>.Update.Set(e => e.Name , "Second Updated")),
+                new UpdateOneModel<MyEntity>(Builders<MyEntity>.Filter.Where(e => e.Number == 2), Builders<MyEntity>.Update.Set(e => e.Name , "Third Updated")){ IsUpsert=true }
             });
 
             result.InsertedCount.Should().Be(2);
-            result.ModifiedCount.Should().Be(1);
+            result.ModifiedCount.Should().Be(2);
 
             var all = col.Find(_ => true).ToList();
-            all.Count.Should().Be(2);
+            all.Count.Should().Be(3);
             all.Where(e => e.Name == "First").Count().Should().Be(1);
             all.Where(e => e.Name == "Second Updated").Count().Should().Be(1);
+            all.Where(e => e.Name == "Third Updated").Count().Should().Be(1);
+
+            var third = all.Where(e => e.Name == "Third Updated").First();
+            result.Upserts.Count.Should().Be(1);
+            result.Upserts[0].Id.Should().Be(third.Id);
+
         }
 
         private IMongoCollection<T> GetCollection<T>()
