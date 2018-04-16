@@ -95,13 +95,13 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\InMemoryMongoDb\InMemoryMongoDb.csproj">
-      <Project>{f4ba5237-42ac-4ad3-9fe5-3611f00a07e2}</Project>
-      <Name>InMemoryMongoDb</Name>
-    </ProjectReference>
+    <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />
   </ItemGroup>
   <ItemGroup>
-    <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />
+    <ProjectReference Include="..\InMemoryMongoDb\InMemoryMongoDb.csproj">
+      <Project>{e6181879-c26a-45e2-98a7-604e53856e12}</Project>
+      <Name>InMemoryMongoDb</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
