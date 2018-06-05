@@ -15,7 +15,7 @@ namespace InMemoryMongoDb
     {
         private readonly string name;
         private readonly TinyIoCContainer iocContainer;
-        private readonly ConcurrentDictionary<string, InMemoryCollection> collections = new ConcurrentDictionary<string, InMemoryCollection>();
+        private readonly ConcurrentDictionary<string, VanillaCollection> collections = new ConcurrentDictionary<string, VanillaCollection>();
 
         public InMemoryDatabase(IMongoClient client, string name, TinyIoCContainer iocContainer)
         {
@@ -96,18 +96,12 @@ namespace InMemoryMongoDb
 
         public IMongoCollection<TDocument> GetCollection<TDocument>(string name, MongoCollectionSettings settings = null)
         {
-            InMemoryCollection<TDocument> NewCollection(string n)
+            InMemoryCollection<TDocument> NewCollection(VanillaCollection vCol)
             {
-                return iocContainer.Resolve <InMemoryCollection<TDocument>>(
-                new NamedParameterOverloads
-                {
-                    { "name", name },
-                    { "db", this}
-                });
-                //return new InMemoryCollection<TDocument>(this, n);
+                return new InMemoryCollection<TDocument>(this, vCol, iocContainer.Resolve<IFilter>(), iocContainer.Resolve<IUpdater>());
             }
 
-            return collections.AddOrUpdate(name, n => NewCollection(n), (n, c) => c ?? NewCollection(n)) as IMongoCollection<TDocument>;
+            return NewCollection(collections.GetOrAdd(name, n => new VanillaCollection(n)));// as IMongoCollection<TDocument>;//, (n, c) => c ?? NewCollection(n)) as IMongoCollection<TDocument>;
         }
 
         public IAsyncCursor<BsonDocument> ListCollections(ListCollectionsOptions options = null, CancellationToken cancellationToken = default)

@@ -21,41 +21,33 @@ namespace InMemoryMongoDb
             container.Register(typeof(InMemoryCollection<>));
         }
     }
-    class InMemoryCollection
-    {
 
-    }
-    class InMemoryCollection<T> : InMemoryCollection, IMongoCollection<T>
+    class InMemoryCollection<T> : IMongoCollection<T>
     {
-        private readonly ConcurrentDictionary<object, BsonDocument> docs;
-        private readonly string name;
+        //private readonly ConcurrentDictionary<object, BsonDocument> Docs;
+        private readonly VanillaCollection vCol;
+        //private readonly string Name;
         private readonly IFilter whereFilter;
         private readonly IUpdater updater;
         private readonly IIdGenerator idGenerator;
         private readonly IBsonSerializer<T> bsonSerializer;
         private readonly BsonMemberMap idMemeber;
 
-        public InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter, IUpdater updater)
-            :this(db, name, whereFilter, updater, new ConcurrentDictionary<object, BsonDocument>())
-        {
-            
-        }
-
-        protected InMemoryCollection(IMongoDatabase db, string name, IFilter whereFilter, IUpdater updater, ConcurrentDictionary<object, BsonDocument> docs)
+        private string Name => vCol.Name;
+        private ConcurrentDictionary<object, BsonDocument> Docs => vCol.Docs;
+        public InMemoryCollection(IMongoDatabase db, VanillaCollection vCol, IFilter whereFilter, IUpdater updater)
         {
             Database = db ?? throw new ArgumentNullException(nameof(db));
-            this.name = name;
+            this.vCol = vCol ?? throw new ArgumentNullException(nameof(vCol));
             this.whereFilter = whereFilter ?? throw new ArgumentNullException(nameof(whereFilter));
             this.updater = updater ?? throw new ArgumentNullException(nameof(updater));
             var map = BsonClassMap.LookupClassMap(typeof(T));
 
-            idGenerator = (idMemeber = map.IdMemberMap).IdGenerator;
+            idGenerator = (idMemeber = map.IdMemberMap)?.IdGenerator;
             bsonSerializer = BsonSerializer.SerializerRegistry.GetSerializer<T>();
-
-            this.docs = docs;
         }
 
-        public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, name);
+        public CollectionNamespace CollectionNamespace => new CollectionNamespace(Database.DatabaseNamespace, Name);
 
         public IMongoDatabase Database { get; private set; }
 
@@ -65,7 +57,7 @@ namespace InMemoryMongoDb
 
         public MongoCollectionSettings Settings => new MongoCollectionSettings();
         private IEnumerable<BsonDocument> AllDocs()
-            => docs.Select(i => i.Value);
+            => Docs.Select(i => i.Value);
 
         public IAsyncCursor<TResult> Aggregate<TResult>(PipelineDefinition<T, TResult> pipeline, AggregateOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -184,7 +176,7 @@ namespace InMemoryMongoDb
         }
 
         private bool RemoveDoc(BsonDocument doc)
-            => doc != null && docs.TryRemove(doc["_id"], out var _);
+            => doc != null && Docs.TryRemove(doc["_id"], out var _);
 
         public DeleteResult DeleteMany(FilterDefinition<T> filter, DeleteOptions options, CancellationToken cancellationToken = default)
             => DeleteMany(filter, cancellationToken);
@@ -264,7 +256,7 @@ namespace InMemoryMongoDb
             var item = ApplySort(options?.Sort, ApplyFilter(filter, null, null)).First();
             if (item != null)
             {
-                docs.TryRemove(item["_id"], out var _);
+                Docs.TryRemove(item["_id"], out var _);
                 return DoProjection(item, options?.Projection);
             }
             return default;
@@ -329,7 +321,7 @@ namespace InMemoryMongoDb
                     throw new InMemoryDatabaseException($"The _id field cannot be changed from {{{id}}} to {{{newId}}}.");
 
                 var bson = replacement.ToBsonDocument();
-                docs[bson["_id"]] = bson;
+                Docs[bson["_id"]] = bson;
             }
             else if(options != null && options.IsUpsert)
                 InsertOne(replacement);
@@ -353,7 +345,8 @@ namespace InMemoryMongoDb
             if (currentItem == null && options != null && options.IsUpsert)
             {
                 currentItem = new BsonDocument();
-                currentItem["_id"] = BsonValue.Create(idGenerator.GenerateId(this, currentItem));
+                if(idGenerator != null)
+                    currentItem["_id"] = BsonValue.Create(idGenerator.GenerateId(this, currentItem));
             }
             if (currentItem == null)
                 return default;
@@ -408,10 +401,10 @@ namespace InMemoryMongoDb
         public void InsertOne(T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
         {
             object docId = idMemeber.Getter(document);
-            if (docId == null || docId.Equals(idMemeber.DefaultValue))
+            if (docId == null || (idMemeber != null && docId.Equals(idMemeber.DefaultValue)))
                 idMemeber.Setter(document, idGenerator.GenerateId(this, document));
             var bson = document.ToBsonDocument();
-            docs.TryAdd(bson["_id"], bson);
+            Docs.TryAdd(bson["_id"], bson);
         }
 
         public void InsertOne(IClientSessionHandle session, T document, InsertOneOptions options = null, CancellationToken cancellationToken = default)
@@ -450,7 +443,7 @@ namespace InMemoryMongoDb
         }
 
         public IFilteredMongoCollection<TDerivedDocument> OfType<TDerivedDocument>() where TDerivedDocument : T
-            => new InMemoryFilteredCollection<T, TDerivedDocument>(Database, name, whereFilter, updater, docs, Builders<TDerivedDocument>.Filter.OfType<TDerivedDocument>(_ => true));
+            => new InMemoryFilteredCollection<T, TDerivedDocument>(Database, vCol, whereFilter, updater, Builders<TDerivedDocument>.Filter.OfType<TDerivedDocument>(_ => true));
 
         public ReplaceOneResult ReplaceOne(FilterDefinition<T> filter, T replacement, UpdateOptions options = null, CancellationToken cancellationToken = default)
         {
@@ -465,7 +458,7 @@ namespace InMemoryMongoDb
 
                 idMemeber.Setter(replacement, id);
                 var bson = replacement.ToBsonDocument();
-                docs[bson["_id"]] = bson;
+                Docs[bson["_id"]] = bson;
                 return new IMReplaceOneResult(true, true, 1, 1, BsonValue.Create(id));
             }
             else if (options != null && options.IsUpsert)
@@ -502,11 +495,13 @@ namespace InMemoryMongoDb
 
         private BsonValue DoUpsert(UpdateDefinition<T> update)
         {
-            BsonValue upsetId;
+            BsonValue upsetId = null;
             var doc = new BsonDocument();
-            doc["_id"] = upsetId = BsonValue.Create(idGenerator.GenerateId(this, doc));
+            if(idGenerator != null)
+                doc["_id"] = upsetId = BsonValue.Create(idGenerator.GenerateId(this, doc));
             updater.Apply(update, doc);
-            docs[doc["_id"]] = doc;
+            if (idGenerator != null)
+                Docs[doc["_id"]] = doc;
             return upsetId;
         }
 
