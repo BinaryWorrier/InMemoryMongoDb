@@ -11,8 +11,8 @@ namespace InMemoryMongoDb
     internal class InMemoryFilteredCollection<T, TDerivedDocument> : InMemoryCollection<TDerivedDocument>, IFilteredMongoCollection<TDerivedDocument> 
         where TDerivedDocument : T
     {
-        public InMemoryFilteredCollection(IMongoDatabase db, string name, IFilter whereFilter, IUpdater updater, ConcurrentDictionary<object, BsonDocument> docs, FilterDefinition<TDerivedDocument> filterDefinition)
-            :base(db, name, whereFilter, updater, docs)
+        public InMemoryFilteredCollection(IMongoDatabase db, VanillaCollection vCol, IFilter whereFilter, IUpdater updater, FilterDefinition<TDerivedDocument> filterDefinition)
+            :base(db, vCol, whereFilter, updater)
         {
             Filter = filterDefinition;
         }
